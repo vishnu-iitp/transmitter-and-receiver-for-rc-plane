@@ -1,0 +1,119 @@
+// Transmitter Code
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+
+#define CE_PIN 9
+#define CSN_PIN 10
+
+RF24 radio(CE_PIN, CSN_PIN);
+const byte address[6] = "00001";
+
+struct ControlData {
+  int throttle;
+  int elevation;
+  int elevon;
+};
+
+ControlData data;
+
+void setup() {
+  Serial.begin(9600);
+
+  if (!radio.begin()) {
+    Serial.println("nRF24L01 initialization failed!");
+    while (1);
+  }
+
+  Serial.println("nRF24L01 initialized successfully.");
+  radio.openWritingPipe(address);
+  radio.setPALevel(RF24_PA_HIGH);
+  radio.setDataRate(RF24_250KBPS);
+  radio.setAutoAck(false);
+  radio.stopListening();
+}
+
+void loop() {
+  data.throttle = analogRead(A0) / 4; // Map to 0-255
+  data.elevation = analogRead(A1) / 4; // Example joystick input
+  data.elevon = analogRead(A2) / 4; // Example joystick input
+
+  Serial.print("Throttle Value: ");
+  Serial.println(data.throttle);
+
+  if (radio.write(&data, sizeof(data))) {
+    Serial.println("Data sent successfully.");
+  } else {
+    Serial.println("Data transmission failed!");
+  }
+
+  delay(100);
+}
+
+// Receiver Code
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+#include <Servo.h>
+
+#define CE_PIN 9
+#define CSN_PIN 10
+
+RF24 radio(CE_PIN, CSN_PIN);
+const byte address[6] = "00001";
+
+struct ControlData {
+  int throttle;
+  int elevation;
+  int elevon;
+};
+
+ControlData data;
+
+Servo throttleServo;
+Servo elevonLeft;
+Servo elevonRight;
+
+void setup() {
+  Serial.begin(9600);
+
+  if (!radio.begin()) {
+    Serial.println("nRF24L01 initialization failed!");
+    while (1);
+  }
+
+  Serial.println("nRF24L01 initialized successfully.");
+  radio.openReadingPipe(0, address);
+  radio.setPALevel(RF24_PA_HIGH);
+  radio.setDataRate(RF24_250KBPS);
+  radio.setAutoAck(false);
+  radio.startListening();
+
+  throttleServo.attach(3);
+  elevonLeft.attach(5);
+  elevonRight.attach(6);
+
+  throttleServo.writeMicroseconds(1000); // ESC initialization
+  delay(5000);
+}
+
+void loop() {
+  if (radio.available()) {
+    radio.read(&data, sizeof(data));
+
+    int throttleValue = map(data.throttle, 0, 255, 1000, 2000);
+    throttleServo.writeMicroseconds(throttleValue);
+
+    int elevonLeftValue = constrain(data.elevation + data.elevon, -100, 100);
+    int elevonRightValue = constrain(data.elevation - data.elevon, -100, 100);
+
+    elevonLeft.write(map(elevonLeftValue, -100, 100, 0, 180));
+    elevonRight.write(map(elevonRightValue, -100, 100, 0, 180));
+
+    Serial.print("Throttle Value: ");
+    Serial.println(throttleValue);
+    Serial.println("Data received and applied.");
+  } else {
+    Serial.println("No data available.");
+  }
+}
